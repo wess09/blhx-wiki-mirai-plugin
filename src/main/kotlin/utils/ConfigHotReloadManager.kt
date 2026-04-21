@@ -11,9 +11,9 @@ import org.iris.wiki.config.AliasConfig
 import org.iris.wiki.config.AutoReplyConfig
 import org.iris.wiki.config.CommandConfig
 import org.iris.wiki.config.WikiConfig
+import java.nio.file.attribute.BasicFileAttributes
 import java.nio.file.Files
 import java.nio.file.Path
-import java.security.MessageDigest
 
 object ConfigHotReloadManager {
 
@@ -31,12 +31,10 @@ object ConfigHotReloadManager {
 
     @Synchronized
     fun reloadAllConfigs(reason: String) {
-        with(Wiki) {
-            AliasConfig.reload()
-            CommandConfig.reload()
-            WikiConfig.reload()
-            AutoReplyConfig.reload()
-        }
+        AliasConfig.load()
+        CommandConfig.load()
+        WikiConfig.load()
+        AutoReplyConfig.load()
         Listener.reloadRuntimeConfigCaches()
         Wiki.logger.info("配置已重载: $reason")
     }
@@ -88,9 +86,8 @@ object ConfigHotReloadManager {
                 return@associateWith "missing"
             }
             runCatching {
-                val bytes = Files.readAllBytes(path)
-                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
-                digest.joinToString("") { "%02x".format(it) }
+                val attributes = Files.readAttributes(path, BasicFileAttributes::class.java)
+                "${attributes.lastModifiedTime().toMillis()}:${attributes.size()}"
             }.getOrElse {
                 "unreadable:${Files.getLastModifiedTime(path).toMillis()}"
             }
