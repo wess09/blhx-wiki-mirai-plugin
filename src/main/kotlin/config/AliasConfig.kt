@@ -9,7 +9,7 @@ import java.util.HashMap
 object AliasConfig : AutoSavePluginConfig("AliasConfig") {
 
     @ValueDescription("别名，指令自动转小写，别名中的英文请使用小写字母")
-    val ALIAS_USER_MAP : Map<String, String> by value(mapOf<String, String>(
+    var ALIAS_USER_MAP : MutableMap<String, String> by value(mutableMapOf<String, String>(
 
     ))
     @ValueDescription("驱逐别名")
@@ -790,7 +790,8 @@ object AliasConfig : AutoSavePluginConfig("AliasConfig") {
 
     val ALIAS_MAP : HashMap<String, String> = hashMapOf()
 
-    init {
+    fun rebuildAliasMap() {
+        ALIAS_MAP.clear()
         val mapList = listOf(
             ALIAS_DD_MAP,
             ALIAS_CL_MAP,
@@ -811,6 +812,16 @@ object AliasConfig : AutoSavePluginConfig("AliasConfig") {
         mapList.forEach {
             ALIAS_MAP.putAll(it)
         }
+        ALIAS_MAP.putAll(ALIAS_USER_MAP)
+    }
+
+    init {
+        rebuildAliasMap()
+    }
+
+    fun addUserAlias(alias: String, target: String) {
+        ALIAS_USER_MAP[alias] = target
+        rebuildAliasMap()
     }
 
 }

@@ -189,4 +189,23 @@ object CommandConfig : AutoSavePluginConfig("CommandConfig") {
     )
 
     val ALL_COMMAND = hashSetOf<String>()
+
+    fun rebuildAllCommands() {
+        ALL_COMMAND.clear()
+        val commands = listOf(
+            attribute,
+            dress,
+            dressLarge,
+            picLarge,
+            from,
+            tech,
+            evaluate,
+            equip,
+            wedding
+        )
+        commands.forEach {
+            ALL_COMMAND.addAll(it)
+        }
+        ALL_COMMAND.addAll(voice_map.keys)
+    }
 }
