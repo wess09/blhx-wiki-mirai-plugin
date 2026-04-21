@@ -2,7 +2,6 @@ package org.iris.wiki.utils
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -12,13 +11,9 @@ import org.iris.wiki.config.AliasConfig
 import org.iris.wiki.config.AutoReplyConfig
 import org.iris.wiki.config.CommandConfig
 import org.iris.wiki.config.WikiConfig
-import java.nio.file.ClosedWatchServiceException
-import java.nio.file.FileSystems
 import java.nio.file.Files
 import java.nio.file.Path
-import java.nio.file.StandardWatchEventKinds
-import java.nio.file.WatchEvent
-import java.nio.file.WatchService
+import java.security.MessageDigest
 
 object ConfigHotReloadManager {
 
@@ -29,11 +24,10 @@ object ConfigHotReloadManager {
         "AutoReplyConfig.yml"
     )
 
-    @Volatile
-    private var suppressEventsBefore = 0L
+    private const val POLL_INTERVAL_MILLIS = 2000L
 
     private var watchJob: Job? = null
-    private var watchService: WatchService? = null
+    private var fileSnapshots: Map<String, String> = emptyMap()
 
     @Synchronized
     fun reloadAllConfigs(reason: String) {
@@ -52,16 +46,10 @@ object ConfigHotReloadManager {
 
         val configFolder = Wiki.configFolderPath
         Files.createDirectories(configFolder)
-        watchService = FileSystems.getDefault().newWatchService().also { service ->
-            configFolder.register(
-                service,
-                StandardWatchEventKinds.ENTRY_CREATE,
-                StandardWatchEventKinds.ENTRY_MODIFY
-            )
-        }
+        fileSnapshots = takeSnapshots(configFolder)
 
         watchJob = Wiki.launch(Dispatchers.IO) {
-            watchLoop(configFolder)
+            pollLoop(configFolder)
         }
 
         Wiki.logger.info("已开启配置文件热重载: $configFolder")
@@ -70,52 +58,41 @@ object ConfigHotReloadManager {
     fun stop() {
         watchJob?.cancel()
         watchJob = null
-        watchService?.close()
-        watchService = null
+        fileSnapshots = emptyMap()
     }
 
-    private suspend fun watchLoop(configFolder: Path) {
-        while (currentCoroutineContext().isActive) {
-            val key = try {
-                watchService?.take()
-            } catch (_: ClosedWatchServiceException) {
-                return
-            } catch (_: InterruptedException) {
-                return
-            } ?: return
-
-            val changedFiles = linkedSetOf<String>()
-            key.pollEvents().forEach { event ->
-                if (event.kind() == StandardWatchEventKinds.OVERFLOW) {
-                    return@forEach
-                }
-                val path = (event.context() as? Path)?.fileName?.toString() ?: return@forEach
-                if (path in watchedConfigNames) {
-                    changedFiles.add(path)
-                }
-            }
-
-            if (!key.reset()) {
-                Wiki.logger.warning("配置文件监听已停止，目录不可用: $configFolder")
-                return
-            }
-
+    private suspend fun pollLoop(configFolder: Path) {
+        while (watchJob?.isActive == true) {
+            delay(POLL_INTERVAL_MILLIS)
+            val latestSnapshots = takeSnapshots(configFolder)
+            val changedFiles = watchedConfigNames.filter { fileSnapshots[it] != latestSnapshots[it] }
             if (changedFiles.isEmpty()) {
+                fileSnapshots = latestSnapshots
                 continue
             }
-
-            val now = System.currentTimeMillis()
-            if (now < suppressEventsBefore) {
-                continue
-            }
-
-            delay(300)
-            suppressEventsBefore = System.currentTimeMillis() + 1000
 
             runCatching {
                 reloadAllConfigs("检测到 ${changedFiles.joinToString("、")} 变更")
+                fileSnapshots = takeSnapshots(configFolder)
             }.onFailure {
+                fileSnapshots = latestSnapshots
                 Wiki.logger.warning("配置热重载失败: ${it.message}")
+            }
+        }
+    }
+
+    private fun takeSnapshots(configFolder: Path): Map<String, String> {
+        return watchedConfigNames.associateWith { name ->
+            val path = configFolder.resolve(name)
+            if (!Files.exists(path)) {
+                return@associateWith "missing"
+            }
+            runCatching {
+                val bytes = Files.readAllBytes(path)
+                val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+                digest.joinToString("") { "%02x".format(it) }
+            }.getOrElse {
+                "unreadable:${Files.getLastModifiedTime(path).toMillis()}"
             }
         }
     }
