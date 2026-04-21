@@ -6,6 +6,7 @@ import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
+import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.time.Duration
 
@@ -27,28 +28,41 @@ object HttpUtils {
 
     private fun sendRequest(request: Request): String {
         return try {
-            val response = client.newCall(request).execute()
-            response.body!!.string()
+            client.newCall(request).execute().use { response ->
+                response.body?.string() ?: ""
+            }
         } catch (_: Exception) {
             ""
         }
 //        return json.parseToJsonElement(body)
     }
 
+    private fun sendByteRequest(request: Request): ByteArray? {
+        return try {
+            client.newCall(request).execute().use { response ->
+                response.body?.bytes()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
-    suspend fun get(url: String): String = withContext(Dispatchers.IO) {
-        val request = Request.Builder()
+    private fun buildGetRequest(url: String): Request {
+        return Request.Builder()
             .url(url)
             .header("cookie", cookie)
             .header("Content-Type", "application/json; charset=utf-8")
             .header("user-agent", ua.random())
             .get()
             .build()
-        try {
-            val response = client.newCall(request).execute()
-            response.body!!.string()
-        } catch (_: Exception) {
-            ""
+    }
+
+    suspend fun get(url: String, useCache: Boolean = true): String = withContext(Dispatchers.IO) {
+        val request = buildGetRequest(url)
+        if (useCache) {
+            RemoteCacheUtils.getText(url) { sendRequest(request) }
+        } else {
+            sendRequest(request)
         }
     }
 
@@ -62,32 +76,24 @@ object HttpUtils {
     }
 
 
-    fun getByteArray(url: String): ByteArrayOutputStream? {
-        try {
-
-            val request = Request.Builder().url(url)
-                .header("cookie", cookie)
-                .header("Content-Type", "application/json; charset=utf-8")
-                .header("user-agent", ua.random())
-                .get().build()
-            val infoStream = ByteArrayOutputStream()
-            val response = client.newCall(request).execute();
-
-            val `in` = response.body?.byteStream()
-            val buffer = ByteArray(2048)
-            var len = 0
-            val data = ""
-            if (`in` != null) {
-                while (`in`.read(buffer).also { len = it } > 0) {
-                    infoStream.write(buffer, 0, len)
-                }
-            }
-            infoStream.write((Math.random() * 100).toInt() + 1)
-            infoStream.close()
-            return infoStream
-        } catch (e: Exception) {
-            return null
+    fun getBytes(url: String, useCache: Boolean = true): ByteArray? {
+        val request = buildGetRequest(url)
+        return if (useCache) {
+            RemoteCacheUtils.getBinary(url) { sendByteRequest(request) }
+        } else {
+            sendByteRequest(request)
         }
+    }
+
+    fun getByteArray(url: String, useCache: Boolean = true): ByteArrayOutputStream? {
+        val bytes = getBytes(url, useCache) ?: return null
+        return ByteArrayOutputStream(bytes.size).apply {
+            ByteArrayInputStream(bytes).copyTo(this)
+        }
+    }
+
+    fun clearRemoteCache() {
+        RemoteCacheUtils.clearAll()
     }
 
 }

@@ -8,6 +8,7 @@ import net.mamoe.mirai.contact.Group
 import org.iris.wiki.Wiki
 import org.iris.wiki.config.CommonConfig
 import org.iris.wiki.config.WikiConfig
+import org.iris.wiki.utils.HttpUtils
 import org.iris.wiki.utils.UpdateUtils
 import java.io.File
 
@@ -36,10 +37,11 @@ object WikiConfigCommand : CompositeCommand(
     }
 
     @SubCommand("clear")
-    @Description("清除图片缓存")
+    @Description("清除图片缓存和远程内容缓存")
     suspend fun CommandSender.clear() {
         deleteDirectoryFiles(File(CommonConfig.ship_output_path))
         deleteDirectoryFiles(File(CommonConfig.equip_output_path))
+        HttpUtils.clearRemoteCache()
         sendMessage("缓存清除成功喵")
     }
 
