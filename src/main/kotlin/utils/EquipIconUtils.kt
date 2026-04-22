@@ -20,8 +20,13 @@ object EquipIconUtils {
             return localFile.path
         }
 
+        val fallbackUrl = normalizeWikiUrl(fallbackPic)
+        if (fallbackUrl.isNotBlank() && cacheToLocal(localFile, fallbackUrl)) {
+            return localFile.path
+        }
+
         val remoteUrl = findEquipIconUrl(name, tno)
-            ?: fallbackPic.takeIf { it.isNotBlank() }
+            ?: fallbackUrl.takeIf { it.isNotBlank() }
             ?: return fallbackPic
 
         return if (cacheToLocal(localFile, remoteUrl)) {
@@ -65,6 +70,18 @@ object EquipIconUtils {
             val image = ImageUtil.getImage(remoteUrl)
             ImageIO.write(image, "png", localFile)
         }.isSuccess
+    }
+
+    private fun normalizeWikiUrl(url: String): String {
+        if (url.isBlank()) {
+            return ""
+        }
+        return when {
+            url.startsWith("http://") || url.startsWith("https://") -> url
+            url.startsWith("//") -> "https:$url"
+            url.startsWith("/") -> "https://wiki.biligame.com$url"
+            else -> url
+        }
     }
 
     private fun sanitizeName(name: String): String {
